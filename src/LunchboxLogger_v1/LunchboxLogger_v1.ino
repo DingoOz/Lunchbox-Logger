@@ -30,6 +30,8 @@
 3) Log temperature
 
 4) Fix starting routine to report the error but not to block start up if a device cannot be found
+
+5) Use files on the SD card to set up time or wifi network
 */
 
 /*DONE
@@ -178,7 +180,7 @@ void setup(void) {
   }
 
   if (UserWantsToSetTime) {
-    Serial.print("Enter current date and time in ISO 8061 format (e.g. 2018-01-01T08:00:00): ");
+    Serial.println("Enter current date and time in ISO 8061 format (e.g. 2018-01-01T08:00:00): ");
     while (Serial.available() == false)
       ;
     if (Serial.available() > 0) {
@@ -186,8 +188,7 @@ void setup(void) {
       Serial.println(dateTime);
       rtc.setDateTimeFromISO8601(dateTime);
       rtc.synchronize();  //write the provided time to the rtc
-    }
-
+    
     //ISO 8061 does not include day of the week
     Serial.print("Enter day of the week (0 for Sunday, 1 for Monday...");
     while (Serial.available() == false)
@@ -199,6 +200,10 @@ void setup(void) {
       rtc.synchronize();
     }
 
+    
+    }
+
+    
     Serial.println("");  //make space
   }
 
