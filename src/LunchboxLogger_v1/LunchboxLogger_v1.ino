@@ -46,19 +46,27 @@ Program flow
 - Setup Serial, TWI, SSD1306, RV3028
 - Ask if user wants to update the RTC
 
+*/
 
-
+/*
+SD card attached to SPI bus as follows:
+   ** MISO      - GPIO 12
+   ** CS        - GPIO 13
+   ** SCK/CLK   - GPIO 14
+   ** MOSI      - GPIO 15
 */
 
 
-
-#include <Wire.h>             //For i2c (piicodev)
-#include <Adafruit_TMP117.h>  //Temperature Sensor
+#include <Wire.h>               //For i2c (piicodev)
+#include <Adafruit_TMP117.h>    //Temperature Sensor
 #include <Adafruit_Sensor.h>
-#include <Adafruit_GFX.h>      // for SSD1306 screen
-#include <Adafruit_SSD1306.h>  //for OLED screen
-#include <RV3028C7.h>          //RTC
-#include <millisDelay.h>       //for non-blocking delays
+#include <Adafruit_GFX.h>       // for SSD1306 screen
+#include <Adafruit_SSD1306.h>   //for OLED screen
+#include <RV3028C7.h>           //RTC
+#include <millisDelay.h>        //for non-blocking delays
+
+#include <SPI.h>
+#include <SD.h>                 //SD Card functions
 
 //Pre-complier Defines (constants)
 #define SCREEN_WIDTH 128  // OLED display width, in pixels
@@ -111,7 +119,6 @@ void setup(void) {
   display.println("SSD1306 OK.");
   display.display();
 
-  
   //Initialize TMP117
   if (!tmp117.begin()) {
     Serial.println("** Failed to find TMP117 chip");
@@ -123,7 +130,6 @@ void setup(void) {
   display.println("TMP117 OK.");
   display.display();
     
-
   //Set up for RTC RV3028C7
   while (rtc.begin() == false) {
     Serial.print("*** Failed to detect RV-3028-C7");
@@ -134,7 +140,17 @@ void setup(void) {
   Serial.println("Successfully initialised RV3028C7");
   display.println("RTC OK.");
   display.display();
-    
+
+  //Initialise SD card
+  if (!SD.begin(13,SPI1)) 
+  {
+    Serial.println("Card failed, or not present");
+    display.println("ERR - No SD Card");
+    display.display();
+  }
+  Serial.println("SD Card initialized.");
+  display.println("SD Card Ok.");
+  display.display();
 
   // Should I have a time-out and default to a date?
   //Timeout loop
@@ -189,16 +205,16 @@ void setup(void) {
       rtc.setDateTimeFromISO8601(dateTime);
       rtc.synchronize();  //write the provided time to the rtc
     
-    //ISO 8061 does not include day of the week
-    Serial.print("Enter day of the week (0 for Sunday, 1 for Monday...");
-    while (Serial.available() == false)
-      ;
-    if (Serial.available() > 0) {
-      int DayOfWeek = Serial.parseInt();
-      Serial.println(DayOfWeek);
-      rtc.setDateTimeComponent(DATETIME_DAY_OF_WEEK, DayOfWeek);
-      rtc.synchronize();
-    }
+      //ISO 8061 does not include day of the week
+      Serial.println("Enter day of the week (0 for Sunday, 1 for Monday):");
+      while (Serial.available() == false)
+        ;
+      if (Serial.available() > 0) {
+        int DayOfWeek = Serial.parseInt();
+        Serial.println(DayOfWeek);
+        rtc.setDateTimeComponent(DATETIME_DAY_OF_WEEK, DayOfWeek);
+        rtc.synchronize();
+      }
 
     
     }
@@ -226,6 +242,39 @@ void loop() {
   display.print("Temp:");
   display.println(temp.temperature);
   display.display();
+
+  //DEBUG open 'datalog.txt' file and add temperature to it.
+  File dataFile = SD.open("datalog.txt");
+
+  if(dataFile)
+  {
+    Serial.println("datalog.txt openned, writing to it now...");
+    dataFile.print(rtc.getCurrentDateTime());
+    dataFile.print(" , ");
+    dataFile.print(temp.temperature);
+    dataFile.println(" degrees C");
+
+  }
+  
+  
+  
+  
+  
+  // if the file is available, write to it:
+  if (dataFile) 
+  {
+    while (dataFile.available()) 
+    {
+      Serial.write(dataFile.read());
+    }
+    dataFile.close();
+  }
+  // if the file isn't open, pop up an error:
+  else
+  {
+    Serial.println("Error opening datalog.txt");
+  }
+
 
 
   delay(2000);
