@@ -6,8 +6,10 @@
  * 
  * @copyright Copyright (c) 2023
  * 
- * contribution Bryan Siepert for Adafruit Industries
- * code liberally uses adafruit libraries, please go and support their great products.
+ * 
+ * code liberally uses adafruit libraries (including contribution 
+ * by Bryan Siepert for Adafruit Industries), please go and support their great products!
+ * SD card code attributed to David A. Mellis and Tom Igoe.
   
  * This code is not warranted to be fit for any purpose. You may only use it at your own risk.
  * This generated code may be freely used for both private and commercial use
@@ -36,15 +38,19 @@
 
 /*DONE
 9/2/23 - Created a menu option to update time via serial or default to leaving it as the current RTC stored time.
-
+14/2/23 - Writting data to the SD Card
 */
 
 
 /*
 Program flow
 
-- Setup Serial, TWI, SSD1306, RV3028
-- Ask if user wants to update the RTC
+- Setup Serial, TWI, SSD1306, RV3028, SD Card file
+- [Look for SD Card file with time data, update RTC if necessary]
+- [Look for SD Card file with Wifi Network data, update Wifi & RTC if found]
+- Ask if user wants to update the RTC (with 8 second time out)
+
+
 
 */
 
@@ -154,7 +160,7 @@ void setup(void) {
 
   // Should I have a time-out and default to a date?
   //Timeout loop
-  Serial.println("Do you want to update the time [y/N]? (8 seconds to select)");
+  Serial.println("Do you want to update the time [y/N]? (8s timeout)");
   display.print("RTC update");
   display.display();
     
@@ -199,7 +205,8 @@ void setup(void) {
     Serial.println("Enter current date and time in ISO 8061 format (e.g. 2018-01-01T08:00:00): ");
     while (Serial.available() == false)
       ;
-    if (Serial.available() > 0) {
+    if (Serial.available() > 0) 
+    {
       String dateTime = Serial.readString();  //pull from serial line string
       Serial.println(dateTime);
       rtc.setDateTimeFromISO8601(dateTime);
@@ -209,7 +216,8 @@ void setup(void) {
       Serial.println("Enter day of the week (0 for Sunday, 1 for Monday):");
       while (Serial.available() == false)
         ;
-      if (Serial.available() > 0) {
+      if (Serial.available() > 0) 
+      {
         int DayOfWeek = Serial.parseInt();
         Serial.println(DayOfWeek);
         rtc.setDateTimeComponent(DATETIME_DAY_OF_WEEK, DayOfWeek);
@@ -229,10 +237,10 @@ void setup(void) {
 void loop() {
   sensors_event_t temp;    // create an empty event to be filled
   tmp117.getEvent(&temp);  //fill the empty event object with the current measurements
-  Serial.print(rtc.getCurrentDateTime());
-  Serial.print("   Temperature:  ");
-  Serial.print(temp.temperature);
-  Serial.println(" degrees C");
+  //Serial.print(rtc.getCurrentDateTime());
+  //Serial.print("   Temperature:  ");
+  //Serial.print(temp.temperature);
+  //Serial.println(" degrees C");
   //Serial.println("");
 
   //routine to show temp
@@ -244,38 +252,27 @@ void loop() {
   display.display();
 
   //DEBUG open 'datalog.txt' file and add temperature to it.
-  File dataFile = SD.open("datalog.txt");
+  File dataFile = SD.open("datalog.txt", FILE_WRITE);
 
   if(dataFile)
   {
-    Serial.println("datalog.txt openned, writing to it now...");
+    Serial.println("datalog.txt openned, writing the following:");
     dataFile.print(rtc.getCurrentDateTime());
     dataFile.print(" , ");
     dataFile.print(temp.temperature);
     dataFile.println(" degrees C");
 
-  }
-  
-  
-  
-  
-  
-  // if the file is available, write to it:
-  if (dataFile) 
-  {
-    while (dataFile.available()) 
-    {
-      Serial.write(dataFile.read());
-    }
+    Serial.print(rtc.getCurrentDateTime());
+    Serial.print(" , ");
+    Serial.print(temp.temperature);
+    Serial.println(" degrees C");
+
+    //Close file
     dataFile.close();
   }
-  // if the file isn't open, pop up an error:
-  else
-  {
-    Serial.println("Error opening datalog.txt");
-  }
-
-
-
-  delay(2000);
+  
+  
+  delay(2500);
+  Serial.println("");
+  delay(2500);
 }
