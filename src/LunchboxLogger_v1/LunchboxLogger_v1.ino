@@ -231,7 +231,7 @@ void setup(void) {
     Serial.println("");  //make space
   }
 
-  // Improvement: Pull time from NTP service with Pico W? (try then prompt?) See https://github.com/raspberrypi/pico-examples/blob/master/pico_w/ntp_client/picow_ntp_client.c
+  // Improvement: Pull time from NTP service with Pico W? (try then prompt?) See https://github.com/raspberrypi/pico-examples/tree/master/pico_w/wifi/ntp_client
 }
 
 void loop() {
