@@ -20,7 +20,7 @@
 //Required libraries
 // Adafruit TMP117
 // RV-3028-C7 by Macro Yau
-// CAP-1203 by Sparkfun
+// CAP-1203 by Sparkfun  - remove?
 // Adafruit SSD1306
 // SafeString by Matthew Ford
 
@@ -79,6 +79,9 @@ SD card attached to SPI bus as follows:
 #include <time.h>
 #include <sys/time.h>
 
+#include "LunchboxLogger.h"
+
+          
 
 //Pre-complier Defines (constants)
 #define SCREEN_WIDTH 128  // OLED display width, in pixels
@@ -88,8 +91,10 @@ SD card attached to SPI bus as follows:
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 #ifndef STASSID
-#define STASSID "YOUR_SSID"
-#define STAPSK "YOUR_WIFI_PASSWORD"
+//#define STASSID "YOUR_SSID"
+//#define STAPSK "YOUR_WIFI_PASSWORD"
+#define STASSID ""
+#define STAPSK ""
 #endif
 
 //Constants
@@ -111,6 +116,9 @@ void setClock() {
 
   NTP.begin("pool.ntp.org", "time.nist.gov");
   Serial.print("Waiting for NTP time sync: ");
+  
+  LLPrintln(&display, "waiting for NTP");
+
   time_t now = time(nullptr);   //this stores calendar time (UTC)
   while (now < 8 * 3600 * 2) {
     delay(500);
@@ -132,9 +140,7 @@ void setup(void) {
   while (!Serial) delay(10);  // will pause Zero, Leonardo, etc until serial console opens
   delay(3000);                //time for serial monitor to catch up
 
-  Serial.println("********************************************");
-  Serial.println("* Lunchbox Logger version 1 (February 2023) *");
-  Serial.println("********************************************");
+  LLPrintHeader();
 
   //Set up TWI for piicodev
   Wire.setSDA(8);
@@ -146,7 +152,7 @@ void setup(void) {
     Serial.println(F("SSD1306 allocation failed"));
     for(;;); // Don't proceed, loop forever
   }
-
+ 
   display.display();
   // Clear the buffer
   display.clearDisplay();
@@ -156,40 +162,27 @@ void setup(void) {
   display.cp437(true);
   //             ********************* 
   //display.write("Program started...");
-  display.println("Logger start.");
+  //display.println("Logger start.");
+  LLPrintln(&display, "Logger started.");
   //display.setCursor(0,8);
   //             ********************* 
   display.println("SSD1306 OK.");
   display.display();
 
-  //Initialise WIFI
-  Serial.print("Connecting to ");
-  Serial.println(ssid);
-  multi.addAP(ssid, password);
-  //connect to WIFI OR REBOOT  - WILL NEED TO CHANGE THIS IN FUTURE!*!*!*!*!*!*!*!*!*!
-  if (multi.run() != WL_CONNECTED) {
-    Serial.println("Unable to connect to network, rebooting in 10 seconds...");
-    delay(10000);
-    rp2040.reboot();
-  }
-  Serial.println("");
-  Serial.println("WiFi connected");
-  Serial.println("IP address: ");
-  Serial.println(WiFi.localIP());
-
-  Serial.println("Trying ntp set up...");
-  setClock();
+  
   
   //Initialize TMP117
   if (!tmp117.begin()) {
-    Serial.println("** Failed to find TMP117 chip");
-    display.println("ERR - TMP117 not found");
-    display.display();
-    while (1) { delay(10); }
+    LLPrintln(&display, "ERR-TMR117 not found");
+    //Serial.println("** Failed to find TMP117 chip");
+    //display.println("ERR - TMP117 not found");
+    //display.display();
+    while (1) { delay(10); }// loop forever
   }
-  Serial.println("Successfully initialised TMP117");
-  display.println("TMP117 OK.");
-  display.display();
+  LLPrintln(&display, "TMR117 OK.");
+  //Serial.println("Successfully initialised TMP117");
+  //display.println("TMP117 OK.");
+  //display.display();
     
   //Set up for RTC RV3028C7
   while (rtc.begin() == false) {
@@ -202,6 +195,26 @@ void setup(void) {
   display.println("RTC OK.");
   display.display();
 
+  //Initialise WIFI
+  Serial.print("Connecting to ");
+  Serial.println(ssid);
+  multi.addAP(ssid, password);
+  //connect to WIFI OR REBOOT  - WILL NEED TO CHANGE THIS IN FUTURE!*!*!*!*!*!*!*!*!*!
+  if (multi.run() != WL_CONNECTED) {
+    LLPrintln(&display, "WiFi ERROR");
+    Serial.println("Unable to connect to network, rebooting in 10 seconds...");
+    delay(10000);
+    rp2040.reboot();
+  }
+  Serial.println("");
+  LLPrintln(&display, "WiFi OK");
+  Serial.println("IP address: ");
+  Serial.println(WiFi.localIP());
+
+  Serial.println("Trying to set RTC from NTP...");
+  setClock();
+
+
   //Initialise SD card
   if (!SD.begin(13,SPI1)) 
   {
@@ -213,12 +226,10 @@ void setup(void) {
   display.println("SD Card Ok.");
   display.display();
 
-  // Should I have a time-out and default to a date?
   //Timeout loop
   Serial.println("Do you want to update the time [y/N]? (8s timeout)");
-  display.print("RTC update");
-  display.display();
-    
+  LLPrintln(&display, "RTC update?...");
+      
   MaxInputTime.start(8000);  //8 seconds default time
   bool UserInputKnown = false;
   bool UserWantsToSetTime = false;
@@ -249,9 +260,10 @@ void setup(void) {
     }
 
     if ((LastRemainingTime - MaxInputTime.remaining()) >= 1000) {
-      Serial.print(".");
-      display.print(".");
-      display.display();
+      LLPrint(&display, ".");
+      //Serial.print(".");
+      //display.print(".");
+      //display.display();
       LastRemainingTime = MaxInputTime.remaining();
     }
   }
@@ -311,7 +323,7 @@ void loop() {
 
   if(dataFile)
   {
-    Serial.println("datalog.txt openned, writing the following:");
+    Serial.println("datalog.txt opened, writing the following:");
     dataFile.print(rtc.getCurrentDateTime());
     dataFile.print(" , ");
     dataFile.print(temp.temperature);
