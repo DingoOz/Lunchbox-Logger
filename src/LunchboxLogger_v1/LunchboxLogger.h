@@ -12,7 +12,11 @@ void LLPrintHeader()
 {
   Serial.println("********************************************");
   Serial.println("* Lunchbox Logger version 1 (February 2023)*");
+  Serial.println("*                                          *");
+  Serial.println("*     -- Ensuring safer lunchboxes --      *");
+  Serial.println("*                                          *");
   Serial.println("********************************************");
+
 }
 
 //Sends the text to the UART and the SSD1306 at the same time.

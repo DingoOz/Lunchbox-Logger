@@ -34,6 +34,12 @@
 5) Use files on the SD card to set up time or wifi network
 
 6) Set up user input via a webbrowser and not only via UART
+
+7) Add logic for when there is no Internet - include not trying NTP if no Internet connection. See https://arduino-pico.readthedocs.io/en/latest/wifintp.html#
+
+8) Physical enclosure
+
+9) format the log string for easier data analysis
 */
 
 /*DONE
@@ -67,16 +73,16 @@ SD card attached to SPI bus as follows:
 */
 
 
-#include <Wire.h>               //For i2c (piicodev)
-#include <Adafruit_TMP117.h>    //Temperature Sensor
+#include <Wire.h>             //For i2c (piicodev)
+#include <Adafruit_TMP117.h>  //Temperature Sensor
 #include <Adafruit_Sensor.h>
-#include <Adafruit_GFX.h>       // for SSD1306 screen
-#include <Adafruit_SSD1306.h>   //for OLED screen
-#include <RV3028C7.h>           //RTC
-#include <millisDelay.h>        //for non-blocking delays
+#include <Adafruit_GFX.h>      // for SSD1306 screen
+#include <Adafruit_SSD1306.h>  //for OLED screen
+#include <RV3028C7.h>          //RTC
+#include <millisDelay.h>       //for non-blocking delays
 
 #include <SPI.h>
-#include <SD.h>                 //SD Card functions
+#include <SD.h>  //SD Card functions
 
 //NTP clock sync
 #include <WiFi.h>
@@ -85,13 +91,13 @@ SD card attached to SPI bus as follows:
 
 #include "LunchboxLogger.h"
 
-          
+
 
 //Pre-complier Defines (constants)
 #define SCREEN_WIDTH 128  // OLED display width, in pixels
 #define SCREEN_HEIGHT 64  // OLED display height, in pixels
-#define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
-#define SCREEN_ADDRESS 0x3C 
+#define OLED_RESET -1     // Reset pin # (or -1 if sharing Arduino reset pin)
+#define SCREEN_ADDRESS 0x3C
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 #ifndef STASSID
@@ -100,9 +106,6 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 #define STASSID ""
 #define STAPSK ""
 #endif
-
-//Constants
-//const unsigned long SERIAL_DELAY_TIME = 5000; //5 second timeout on default option
 
 //Global objects
 Adafruit_TMP117 tmp117;    //create temperature sensor object
@@ -113,45 +116,39 @@ const char* password = STAPSK;
 WiFiMulti multi;
 bool NTPTimeSetWasSuccessful = false;
 
-
 //Pulls the NTP UTC time and prints the local timezone time to serial
 int setClock() {
-  //setenv("TZ", "Australia/Brisbane", 1);
-  setenv("TZ","AEST-10",1); //Brisbane AU
+  setenv("TZ", "AEST-10", 1);  //Brisbane AU
   tzset();
 
   NTP.begin("pool.ntp.org", "time.nist.gov");
-  //Serial.print("Waiting for NTP time sync: ");
-  
+
   LLPrintln(&display, "Waiting for NTP");
 
-  time_t now = time(nullptr);   //this stores calendar time (UTC)
+  time_t now = time(nullptr);  //this stores calendar time (UTC)
   while (now < 8 * 3600 * 2) {
     delay(500);
     Serial.print(".");
     now = time(nullptr);
   }
   Serial.println("");
-  struct tm timeinfo;   //this is for storing localtime
-  struct tm *local = localtime(&now);
+  struct tm timeinfo;  //this is for storing localtime
+  struct tm* local = localtime(&now);
 
-  Serial.print(asctime(local)); 
+  Serial.print(asctime(local));
 
   //Set RV3028
   //rtc.setDateTime(uint16_t year, uint8_t month, uint8_t dayOfMonth, DayOfWeek_t dayOfWeek, uint8_t hour, uint8_t minute)
-  rtc.setDateTime(local->tm_year+1900, 
-                  local->tm_mon+1,
+  rtc.setDateTime(local->tm_year + 1900,
+                  local->tm_mon + 1,
                   local->tm_mday,
                   local->tm_wday,
                   local->tm_hour,
-                  local->tm_min
-                  );
-  //rtc.setDateTimeFromISO8601(dateTime);
+                  local->tm_min);
   rtc.synchronize();  //write the provided time to the rtc
-  
-  return 0; //success
-}
 
+  return 0;  //success
+}
 
 void setup(void) {
   //Set up Serial
@@ -167,42 +164,30 @@ void setup(void) {
   Wire.begin();
 
   // SSD1306_SWITCHCAPVCC = generate display voltage from 3.3V internally
-  if(!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
+  if (!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
     Serial.println(F("SSD1306 allocation failed"));
-    for(;;); // Don't proceed, loop forever
+    for (;;)
+      ;  // Don't proceed, loop forever
   }
- 
+
   display.display();
   // Clear the buffer
   display.clearDisplay();
-  display.setTextSize(1);   //small but info dense for startup (21 char per line)
+  display.setTextSize(1);  //small but info dense for startup (21 char per line)
   display.setTextColor(SSD1306_WHITE);
-  display.setCursor(0,0);
+  display.setCursor(0, 0);
   display.cp437(true);
-  //             ********************* 
-  //display.write("Program started...");
-  //display.println("Logger start.");
   LLPrintln(&display, "Logger started.");
-  //display.setCursor(0,8);
-  //             ********************* 
   display.println("SSD1306 OK.");
   display.display();
 
-  
-  
   //Initialize TMP117
   if (!tmp117.begin()) {
     LLPrintln(&display, "ERR-TMR117 not found");
-    //Serial.println("** Failed to find TMP117 chip");
-    //display.println("ERR - TMP117 not found");
-    //display.display();
-    while (1) { delay(10); }// loop forever
+    while (1) { delay(10); }  // loop forever
   }
   LLPrintln(&display, "TMR117 OK.");
-  //Serial.println("Successfully initialised TMP117");
-  //display.println("TMP117 OK.");
-  //display.display();
-    
+
   //Set up for RTC RV3028C7
   while (rtc.begin() == false) {
     Serial.print("*** Failed to detect RV-3028-C7");
@@ -222,7 +207,7 @@ void setup(void) {
   if (multi.run() != WL_CONNECTED) {
     LLPrintln(&display, "WiFi ERROR");
     Serial.println("Unable to connect to network 10 seconds...");
-    delay(10000);//Wait 10 seconds so message can be seen    
+    delay(10000);  //Wait 10 seconds so message can be seen
     //rp2040.reboot();
   }
   Serial.println("");
@@ -231,18 +216,14 @@ void setup(void) {
   Serial.println(WiFi.localIP());
 
   Serial.println("Trying to set RTC from NTP...");
-  if(setClock()==0)
-  {
+  if (setClock() == 0) {
     NTPTimeSetWasSuccessful = true;
-  }
-  else 
-  {
+  } else {
     NTPTimeSetWasSuccessful = false;
   }
 
-
   //Initialise SD card
-  if (!SD.begin(13,SPI1)) 
+  if (!SD.begin(13, SPI1))  //TODO: Pull out pin to a global variable
   {
     Serial.println("Card failed, or not present");
     display.println("ERR - No SD Card");
@@ -253,14 +234,13 @@ void setup(void) {
   display.display();
 
   //Timeout loop for user input if the NTP sync failed
-  if(!NTPTimeSetWasSuccessful)
-  {
+  if (!NTPTimeSetWasSuccessful) {
     LLPrintln(&display, "User RTC update?");
     Serial.print("Do you want to update the time [y/N]? (8s timeout):");
-    
+
     MaxInputTime.start(8000);  //8 seconds default time
     bool UserInputKnown = false;
-    bool UserWantsToSetTime = false;    //Does the user want manually set the time via UART?
+    bool UserWantsToSetTime = false;  //Does the user want manually set the time via UART?
     long LastRemainingTime = MaxInputTime.remaining();
     while (!UserInputKnown) {
       char c = 0;
@@ -273,13 +253,13 @@ void setup(void) {
 
       if ((c == 'Y') || (c == 'y')) {
         UserWantsToSetTime = true;
-        Serial.println("Yes");   
+        Serial.println("Yes");
         UserInputKnown = true;  //exits loop
       }
 
       if ((c == 'N') || (c == 'n')) {
         UserWantsToSetTime = false;
-        Serial.println("No");   
+        Serial.println("No");
         UserInputKnown = true;  //exits loop
       }
 
@@ -302,48 +282,36 @@ void setup(void) {
       Serial.println("Enter current date and time in ISO 8061 format (e.g. 2018-01-01T08:00:00): ");
       while (Serial.available() == false)
         ;
-      if (Serial.available() > 0) 
-      {
+      if (Serial.available() > 0) {
         String dateTime = Serial.readString();  //pull from serial line string
         Serial.println(dateTime);
         rtc.setDateTimeFromISO8601(dateTime);
         rtc.synchronize();  //write the provided time to the rtc
-      
+
         //ISO 8061 does not include day of the week
         Serial.println("Enter day of the week (0 for Sunday, 1 for Monday):");
         while (Serial.available() == false)
           ;
-        if (Serial.available() > 0) 
-        {
+        if (Serial.available() > 0) {
           int DayOfWeek = Serial.parseInt();
           Serial.println(DayOfWeek);
           rtc.setDateTimeComponent(DATETIME_DAY_OF_WEEK, DayOfWeek);
           rtc.synchronize();
         }
-
-      
       }
-  }
-
-    
+    }
     Serial.println("");  //make space
   }
-
-  // Improvement: Pull time from NTP service with Pico W? (try then prompt?) See https://github.com/raspberrypi/pico-examples/tree/master/pico_w/wifi/ntp_client
+ 
 }
 
 void loop() {
   sensors_event_t temp;    // create an empty event to be filled
   tmp117.getEvent(&temp);  //fill the empty event object with the current measurements
-  //Serial.print(rtc.getCurrentDateTime());
-  //Serial.print("   Temperature:  ");
-  //Serial.print(temp.temperature);
-  //Serial.println(" degrees C");
-  //Serial.println("");
-
+  
   //routine to show temp
   display.clearDisplay();
-  display.setCursor(0,0);
+  display.setCursor(0, 0);
   display.setTextSize(1);
   //show time
   //extract h:m:s
@@ -355,30 +323,26 @@ void loop() {
   display.println(temp.temperature);
   display.display();
 
-  
-
   //DEBUG open 'datalog.txt' file and add temperature to it.
-  File dataFile = SD.open("datalog.txt", FILE_WRITE);
+  File dataFile = SD.open("datalog.csv", FILE_WRITE);
 
-  if(dataFile)
-  {
-    Serial.println("datalog.txt opened, writing the following:");
+  if (dataFile) {
+    //Serial.println("datalog.txt opened, writing the following:");
     dataFile.print(rtc.getCurrentDateTime());
     dataFile.print(" , ");
-    dataFile.print(temp.temperature);
-    dataFile.println(" degrees C");
+    dataFile.println(temp.temperature);
+    //dataFile.println(" degrees C");
 
     Serial.print(rtc.getCurrentDateTime());
     Serial.print(" , ");
-    Serial.print(temp.temperature);
-    Serial.println(" degrees C");
+    Serial.println(temp.temperature);
+    //Serial.println(" degrees C");
 
     //Close file
     dataFile.close();
   }
-  
-  
+
   delay(2500);
-  Serial.println("");
+  //Serial.println("");
   delay(2500);
 }
