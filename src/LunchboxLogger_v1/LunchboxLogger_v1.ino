@@ -26,14 +26,14 @@
 
 /* TODO
 1) Set and read time from RV3028
-
-2) Merge in code to run SSD1306 OLED display (128x64)
-
-3) Log temperature
+2) Done
+3) Done
 
 4) Fix starting routine to report the error but not to block start up if a device cannot be found
 
 5) Use files on the SD card to set up time or wifi network
+
+6) Set up user input via a webbrowser and not only via UART
 */
 
 /*DONE
@@ -48,8 +48,12 @@ Program flow
 - Setup Serial, TWI, SSD1306, RV3028, SD Card file
 - [Look for SD Card file with time data, update RTC if necessary]
 - [Look for SD Card file with Wifi Network data, update Wifi & RTC if found]
-- Ask if user wants to update the RTC (with 8 second time out)
+- initialise the WIFI
+- poll NTP servers, save time, applying TZ if sucessful
+- If NTP failed, ask if user wants to update the RTC (with 8 second time out)
 
+-- Display temp
+-- log time temp
 
 
 */
@@ -107,17 +111,19 @@ millisDelay MaxInputTime;  //to allow no input default options after period
 const char* ssid = STASSID;
 const char* password = STAPSK;
 WiFiMulti multi;
+bool NTPTimeSetWasSuccessful = false;
+
 
 //Pulls the NTP UTC time and prints the local timezone time to serial
-void setClock() {
+int setClock() {
   //setenv("TZ", "Australia/Brisbane", 1);
   setenv("TZ","AEST-10",1); //Brisbane AU
   tzset();
 
   NTP.begin("pool.ntp.org", "time.nist.gov");
-  Serial.print("Waiting for NTP time sync: ");
+  //Serial.print("Waiting for NTP time sync: ");
   
-  LLPrintln(&display, "waiting for NTP");
+  LLPrintln(&display, "Waiting for NTP");
 
   time_t now = time(nullptr);   //this stores calendar time (UTC)
   while (now < 8 * 3600 * 2) {
@@ -130,7 +136,20 @@ void setClock() {
   struct tm *local = localtime(&now);
 
   Serial.print(asctime(local)); 
+
+  //Set RV3028
+  //rtc.setDateTime(uint16_t year, uint8_t month, uint8_t dayOfMonth, DayOfWeek_t dayOfWeek, uint8_t hour, uint8_t minute)
+  rtc.setDateTime(local->tm_year+1900, 
+                  local->tm_mon+1,
+                  local->tm_mday,
+                  local->tm_wday,
+                  local->tm_hour,
+                  local->tm_min
+                  );
+  //rtc.setDateTimeFromISO8601(dateTime);
+  rtc.synchronize();  //write the provided time to the rtc
   
+  return 0; //success
 }
 
 
@@ -202,9 +221,9 @@ void setup(void) {
   //connect to WIFI OR REBOOT  - WILL NEED TO CHANGE THIS IN FUTURE!*!*!*!*!*!*!*!*!*!
   if (multi.run() != WL_CONNECTED) {
     LLPrintln(&display, "WiFi ERROR");
-    Serial.println("Unable to connect to network, rebooting in 10 seconds...");
-    delay(10000);
-    rp2040.reboot();
+    Serial.println("Unable to connect to network 10 seconds...");
+    delay(10000);//Wait 10 seconds so message can be seen    
+    //rp2040.reboot();
   }
   Serial.println("");
   LLPrintln(&display, "WiFi OK");
@@ -212,7 +231,14 @@ void setup(void) {
   Serial.println(WiFi.localIP());
 
   Serial.println("Trying to set RTC from NTP...");
-  setClock();
+  if(setClock()==0)
+  {
+    NTPTimeSetWasSuccessful = true;
+  }
+  else 
+  {
+    NTPTimeSetWasSuccessful = false;
+  }
 
 
   //Initialise SD card
@@ -222,77 +248,82 @@ void setup(void) {
     display.println("ERR - No SD Card");
     display.display();
   }
-  Serial.println("SD Card initialized.");
-  display.println("SD Card Ok.");
+  //Serial.println("SD Card initialized.");
+  display.println("SD Card OK.");
   display.display();
 
-  //Timeout loop
-  Serial.println("Do you want to update the time [y/N]? (8s timeout)");
-  LLPrintln(&display, "RTC update?...");
-      
-  MaxInputTime.start(8000);  //8 seconds default time
-  bool UserInputKnown = false;
-  bool UserWantsToSetTime = false;
-  long LastRemainingTime = MaxInputTime.remaining();
-  while (!UserInputKnown) {
-    char c = 0;
-    if (Serial.available()) {
-      c = Serial.read();
-      while (Serial.available()) {
-        Serial.read();  //clear the rest of any input
+  //Timeout loop for user input if the NTP sync failed
+  if(!NTPTimeSetWasSuccessful)
+  {
+    LLPrintln(&display, "User RTC update?");
+    Serial.print("Do you want to update the time [y/N]? (8s timeout):");
+    
+    MaxInputTime.start(8000);  //8 seconds default time
+    bool UserInputKnown = false;
+    bool UserWantsToSetTime = false;    //Does the user want manually set the time via UART?
+    long LastRemainingTime = MaxInputTime.remaining();
+    while (!UserInputKnown) {
+      char c = 0;
+      if (Serial.available()) {
+        c = Serial.read();
+        while (Serial.available()) {
+          Serial.read();  //clear the rest of any input
+        }
+      }
+
+      if ((c == 'Y') || (c == 'y')) {
+        UserWantsToSetTime = true;
+        Serial.println("Yes");   
+        UserInputKnown = true;  //exits loop
+      }
+
+      if ((c == 'N') || (c == 'n')) {
+        UserWantsToSetTime = false;
+        Serial.println("No");   
+        UserInputKnown = true;  //exits loop
+      }
+
+      if (MaxInputTime.justFinished()) {
+        Serial.println("No (default)");
+        UserWantsToSetTime = false;
+        UserInputKnown = true;  //exits loop
+      }
+
+      if ((LastRemainingTime - MaxInputTime.remaining()) >= 1000) {
+        LLPrint(&display, ".");
+        //Serial.print(".");
+        //display.print(".");
+        //display.display();
+        LastRemainingTime = MaxInputTime.remaining();
       }
     }
 
-    if ((c == 'Y') || (c == 'y')) {
-      UserWantsToSetTime = true;
-      UserInputKnown = true;  //exits loop
-    }
-
-    if ((c == 'N') || (c == 'n')) {
-      UserWantsToSetTime = false;
-      UserInputKnown = true;  //exits loop
-    }
-
-    if (MaxInputTime.justFinished()) {
-      Serial.println("Default option selected");
-      UserWantsToSetTime = false;
-      UserInputKnown = true;  //exits loop
-    }
-
-    if ((LastRemainingTime - MaxInputTime.remaining()) >= 1000) {
-      LLPrint(&display, ".");
-      //Serial.print(".");
-      //display.print(".");
-      //display.display();
-      LastRemainingTime = MaxInputTime.remaining();
-    }
-  }
-
-  if (UserWantsToSetTime) {
-    Serial.println("Enter current date and time in ISO 8061 format (e.g. 2018-01-01T08:00:00): ");
-    while (Serial.available() == false)
-      ;
-    if (Serial.available() > 0) 
-    {
-      String dateTime = Serial.readString();  //pull from serial line string
-      Serial.println(dateTime);
-      rtc.setDateTimeFromISO8601(dateTime);
-      rtc.synchronize();  //write the provided time to the rtc
-    
-      //ISO 8061 does not include day of the week
-      Serial.println("Enter day of the week (0 for Sunday, 1 for Monday):");
+    if (UserWantsToSetTime) {
+      Serial.println("Enter current date and time in ISO 8061 format (e.g. 2018-01-01T08:00:00): ");
       while (Serial.available() == false)
         ;
       if (Serial.available() > 0) 
       {
-        int DayOfWeek = Serial.parseInt();
-        Serial.println(DayOfWeek);
-        rtc.setDateTimeComponent(DATETIME_DAY_OF_WEEK, DayOfWeek);
-        rtc.synchronize();
-      }
+        String dateTime = Serial.readString();  //pull from serial line string
+        Serial.println(dateTime);
+        rtc.setDateTimeFromISO8601(dateTime);
+        rtc.synchronize();  //write the provided time to the rtc
+      
+        //ISO 8061 does not include day of the week
+        Serial.println("Enter day of the week (0 for Sunday, 1 for Monday):");
+        while (Serial.available() == false)
+          ;
+        if (Serial.available() > 0) 
+        {
+          int DayOfWeek = Serial.parseInt();
+          Serial.println(DayOfWeek);
+          rtc.setDateTimeComponent(DATETIME_DAY_OF_WEEK, DayOfWeek);
+          rtc.synchronize();
+        }
 
-    
-    }
+      
+      }
+  }
 
     
     Serial.println("");  //make space
@@ -313,10 +344,18 @@ void loop() {
   //routine to show temp
   display.clearDisplay();
   display.setCursor(0,0);
+  display.setTextSize(1);
+  //show time
+  //extract h:m:s
+  //String timestring = rtc.getCurrentDateTime();
+  display.println(rtc.getCurrentDateTime());
+  display.println("");
   display.setTextSize(2);
   display.print("Temp:");
   display.println(temp.temperature);
   display.display();
+
+  
 
   //DEBUG open 'datalog.txt' file and add temperature to it.
   File dataFile = SD.open("datalog.txt", FILE_WRITE);
