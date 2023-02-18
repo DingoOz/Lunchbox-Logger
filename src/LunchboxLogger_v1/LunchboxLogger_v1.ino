@@ -74,12 +74,23 @@ SD card attached to SPI bus as follows:
 #include <SPI.h>
 #include <SD.h>                 //SD Card functions
 
+//NTP clock sync
+#include <WiFi.h>
+#include <time.h>
+#include <sys/time.h>
+
+
 //Pre-complier Defines (constants)
 #define SCREEN_WIDTH 128  // OLED display width, in pixels
 #define SCREEN_HEIGHT 64  // OLED display height, in pixels
 #define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
 #define SCREEN_ADDRESS 0x3C 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+#ifndef STASSID
+#define STASSID "YOUR_SSID"
+#define STAPSK "YOUR_WIFI_PASSWORD"
+#endif
 
 //Constants
 //const unsigned long SERIAL_DELAY_TIME = 5000; //5 second timeout on default option
@@ -88,6 +99,32 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 Adafruit_TMP117 tmp117;    //create temperature sensor object
 RV3028C7 rtc;              //create RTC object
 millisDelay MaxInputTime;  //to allow no input default options after period
+const char* ssid = STASSID;
+const char* password = STAPSK;
+WiFiMulti multi;
+
+//Pulls the NTP UTC time and prints the local timezone time to serial
+void setClock() {
+  //setenv("TZ", "Australia/Brisbane", 1);
+  setenv("TZ","AEST-10",1); //Brisbane AU
+  tzset();
+
+  NTP.begin("pool.ntp.org", "time.nist.gov");
+  Serial.print("Waiting for NTP time sync: ");
+  time_t now = time(nullptr);   //this stores calendar time (UTC)
+  while (now < 8 * 3600 * 2) {
+    delay(500);
+    Serial.print(".");
+    now = time(nullptr);
+  }
+  Serial.println("");
+  struct tm timeinfo;   //this is for storing localtime
+  struct tm *local = localtime(&now);
+
+  Serial.print(asctime(local)); 
+  
+}
+
 
 void setup(void) {
   //Set up Serial
@@ -125,6 +162,24 @@ void setup(void) {
   display.println("SSD1306 OK.");
   display.display();
 
+  //Initialise WIFI
+  Serial.print("Connecting to ");
+  Serial.println(ssid);
+  multi.addAP(ssid, password);
+  //connect to WIFI OR REBOOT  - WILL NEED TO CHANGE THIS IN FUTURE!*!*!*!*!*!*!*!*!*!
+  if (multi.run() != WL_CONNECTED) {
+    Serial.println("Unable to connect to network, rebooting in 10 seconds...");
+    delay(10000);
+    rp2040.reboot();
+  }
+  Serial.println("");
+  Serial.println("WiFi connected");
+  Serial.println("IP address: ");
+  Serial.println(WiFi.localIP());
+
+  Serial.println("Trying ntp set up...");
+  setClock();
+  
   //Initialize TMP117
   if (!tmp117.begin()) {
     Serial.println("** Failed to find TMP117 chip");
